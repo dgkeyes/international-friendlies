@@ -75,8 +75,6 @@ ggsave("mexico-intl-friendlies.png")
 ```
 
 
-
-
 ```{r}
 # CREATE FRIENDLY LOCATIONS TIBBLE ----------------------------------------
 
