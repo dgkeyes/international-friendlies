@@ -154,3 +154,5 @@ friendlies.for.map <- intl.friendlies.locations %>%
      filter(home_team == "Brazil")
 
 dk_map_friendlies()
+
+
