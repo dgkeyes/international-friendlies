@@ -1,0 +1,204 @@
+---
+title: "Since 2000, Mexico has played 75% of its friendlies outside of its borders."
+# author: "David Keyes"
+output: html_document
+---
+
+
+```{r include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE, fig.width=9)
+```
+
+
+```{r}
+
+# PACKAGES ----------------------------------------------------------------
+
+library(tidyverse)
+library(maps)
+library(ggmap)
+library(leaflet)
+library(kableExtra)
+library(knitr)
+library(DT)
+library(scales)
+
+load(".RData")
+```
+
+```{r}
+# GET DATA ----------------------------------------------------------------
+
+# Data from https://www.kaggle.com/martj42/international-football-results-from-1872-to-2017/kernels
+
+intl.friendlies <- read_csv("results.csv") %>%
+     filter(tournament == "Friendly") %>%
+     filter(date >= as.Date("2000-01-01")) %>%
+     mutate(played_outside_country = if_else(home_team != country, "Y", "N")) 
+```
+
+```{r}
+# CREATE SUMMARY DATASET --------------------------------------------------
+
+intl.friendlies.summary <- intl.friendlies %>%
+     group_by(home_team) %>%
+     count(played_outside_country) %>%
+     mutate(pct = prop.table(n)) %>%
+     mutate(pct = round(pct, digits = 2)) %>%
+     filter(played_outside_country == "Y") %>%
+     filter(pct >= .25 & n > 10) %>%
+     arrange(pct) 
+
+countries.to.include <- unique(intl.friendlies.summary$home_team)
+```
+
+
+
+```{r}
+# CREATE FRIENDLY LOCATIONS TIBBLE ----------------------------------------
+
+intl.friendlies.locations <- intl.friendlies %>%
+     mutate(city = str_replace(city, "Ch├óteauroux", "Chateauroux")) %>%
+     mutate(country = str_replace(country, "Serbia and Montenegro", "Serbia")) %>%
+     mutate(city = str_replace(city, "Kruševac", "Krusevac")) %>%
+     mutate(city_country = paste(city, country, sep = ", ")) %>%
+     filter(str_detect(home_team, paste(countries.to.include, collapse = "|"))) # Only keep countries in summary dataset above
+
+# Get database of world cities
+
+cities <- world.cities %>%
+     mutate(city_country = paste(name, country.etc, sep = ", "))
+
+# Add geocode data from above database for as many cities as match
+
+friendly.locations <- intl.friendlies.locations %>%
+     distinct(city_country, .keep_all = TRUE) %>%
+     left_join(cities, by = "city_country") 
+
+
+# Geocode cities that aren't matched above
+
+# register_google(key = "AIzaSyB-xmJN6XDy-I0SAT4ORtqcEZMyfpEe-uI")
+# 
+# friendly.locations.no.geo <- friendly.locations %>%
+#      filter(is.na(long)) %>%
+#      mutate_geocode(city_country)
+
+# Merge locations datasets
+
+friendly.locations.merged <- left_join(friendly.locations,
+                                       friendly.locations.no.geo,
+                                       by = "city_country")
+```
+
+```{r}
+# CREATE LOCATIONS DATASET ----------------------------------------------------------
+
+intl.friendlies.locations <- intl.friendlies %>%
+     mutate(city_country = paste(city, country, sep = ", ")) %>%
+     left_join(friendly.locations.merged, by = "city_country") %>%
+     filter(str_detect(home_team.x, paste(countries.to.include, collapse = "|"))) %>%  # Only keep countries in summary dataset above 
+     mutate(lat.x = if_else(is.na(lat.x), lat1, lat.x)) %>%
+     mutate(long.x = if_else(is.na(long.x), lon, long.x)) %>%
+     select(date:city_country, lat.x, long.x) %>%
+     rename("lat" = lat.x) %>%
+     rename("lon" = long.x)
+```
+
+
+
+
+
+```{r}
+# GET WORLD MAP GEO DATA --------------------------------------------------------
+
+world.map <- map_data(map = "world")
+```
+
+
+
+
+
+
+```{r create_map_function}
+# PLOT INTERACTIVELY ------------------------------------------------------
+
+dk_map_friendlies <- function(filtercountry) {
+     
+     
+     friendlies.for.map.outside <- intl.friendlies.locations %>%
+          filter(played_outside_country == "Y") %>%
+          filter(home_team == filtercountry)
+     
+     friendlies.for.map.inside <- intl.friendlies.locations %>%
+          filter(played_outside_country == "N") %>%
+          filter(home_team == filtercountry)
+     
+     leaflet() %>%
+          addProviderTiles(providers$CartoDB.Positron) %>%
+          addCircleMarkers(lng=friendlies.for.map.outside$lon, 
+                           lat=friendlies.for.map.outside$lat,
+                           color = "#DD8233",
+                           stroke = FALSE,
+                           popup = paste("<strong>", 
+                                         friendlies.for.map.outside$home_team,
+                                         " v ",
+                                         friendlies.for.map.outside$away_team, 
+                                         "</strong><br>", 
+                                         friendlies.for.map.outside$date, 
+                                         "<br>", friendlies.for.map.outside$city_country),
+                           fillOpacity = .9) %>%
+          addCircleMarkers(lng=friendlies.for.map.inside$lon, 
+                           lat=friendlies.for.map.inside$lat,
+                           color = "#004c97",
+                           stroke = FALSE,
+                           popup = paste("<strong>", 
+                                         friendlies.for.map.inside$home_team,
+                                         " v ",
+                                         friendlies.for.map.inside$away_team, 
+                                         "</strong><br>", 
+                                         friendlies.for.map.inside$date, 
+                                         "<br>", friendlies.for.map.inside$city_country),
+                           fillOpacity = .6) 
+     
+     
+}
+
+
+
+
+```
+
+```{r include = FALSE}
+
+dk_table_friendlies <- function(filtercountry) {
+     friendlies.for.table <- intl.friendlies.locations %>%
+          # filter(played_outside_country == "Y") %>%
+          filter(home_team == filtercountry) %>%
+          select(date, away_team, city_country, played_outside_country) %>%
+          set_names(c("Date", "Opponent", "Location", "Played Outside Country"))
+     
+     datatable(friendlies.for.table) 
+     
+     
+}
+
+```
+
+&nbsp;<br>
+<span style="background-color:#DD8233; color: #fff; padding: 10px;">Games played in Mexico</span> <span style="background-color:#004c97; color: #fff; ; padding: 10px;">Games played outside of Mexico</span>
+<br>&nbsp;<br>
+
+
+```{r}
+dk_map_friendlies("Mexico")
+dk_table_friendlies("Mexico")
+
+```
+
+
+
+
+
+
+
